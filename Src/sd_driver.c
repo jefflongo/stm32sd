@@ -29,14 +29,15 @@ static void SD_Deselect(void) {
 
 static int SD_CheckReady(){
 	// Use a timer instead of for loop
-	for (int i = 0; i < 50; i++) {
+	for (int i = 0; i < 5000; i++) {
 		if (SPI_ReadByte() == 0xFF) return 1;
 	}
 	return 0;
 }
 
 static u8 SD_SendCommand(u8 cmd, u32 arg) {
-	u8 r, crc = 0;
+	u8 r;
+	u8 crc = 0;
 	// Wait for SD card to be ready
 	if (!SD_CheckReady()) return 0xFF;
 	// Send command->argument->CRC
@@ -62,7 +63,7 @@ static void SD_ReadBlock(BYTE* buff, UINT* count) {
 		u8 token;
 		// Ensure the next response is the valid 0xFE token
 		// Use a timer instead of a for loop
-		for (int j = 0; j < 50; j++) {
+		for (int j = 0; j < 128; j++) {
 			token = SPI_ReadByte();
 			if (token != 0xFF) break;
 		}
@@ -81,6 +82,9 @@ static void SD_ReadBlock(BYTE* buff, UINT* count) {
 /* Driver functions */
 DSTATUS SD_initialize (BYTE pdrv) {
 	u8 r, ocr[4];
+	// Reduce SCLK to ~400kHz
+	hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_256;
+	HAL_SPI_Init(&hspi1);
 	// Single drive hardware should only have drive 0
 	if (pdrv != 0) return STA_NOINIT;
 	// Ensure there is a drive plugged in
@@ -90,10 +94,18 @@ DSTATUS SD_initialize (BYTE pdrv) {
 	// Delay 1ms, Set DI and SS high, apply 74 or more clock pulses to SCLK
 	HAL_Delay(1);
 	SD_Deselect();
-	for (int i = 0; i < 74; i++) SPI_WriteByte(0xFF);
+	for (int i = 0; i < 10; i++) SPI_WriteByte(0xFF);
 	// Go_Idle_State command
 	SD_Select();
 	r = SD_SendCommand(CMD0, 0);
+	// Add extra waiting period on startup
+	for (int i = 0; i < 128; i++) {
+		if (r == 0x01) {
+			printf("CMD0 success\n");
+			break;
+		}
+		r = SPI_ReadByte();
+	}
 	SD_Deselect();
 	if (r != 0x01) return STA_NOINIT;
 	// Set DI back to high
@@ -104,17 +116,46 @@ DSTATUS SD_initialize (BYTE pdrv) {
 	r = SD_SendCommand(CMD8, 0x1AA);
 	// CMD8 accepted
 	if (r == 0x01) {
+		printf("CMD8 success\n");
 		// Read 4 byte data
 		for (int i = 0; i < 4; i++) ocr[i] = SPI_ReadByte();
 		// Arg matched
 		if ((ocr[2] << 2) | (ocr[3] == 0x1AA)) {
 			// Use timer instead of for loop, Attempt to initialize until success
-			for (int i = 0; i < 50; i++) {
-				if (SD_SendCommand(CMD55, 0) <= 0x01 && SD_SendCommand(CMD41, 1UL << 30) == 0)
-					break;
+			printf("0x1AA matched\n");
+			SD_Deselect();
+			SPI_WriteByte(0xFF);
+			SD_Select();
+			for (int i = 0; i < 128; i++) {
+				if (SD_SendCommand(CMD55, 0) <= 0x01) {
+					SD_Deselect();
+					SPI_WriteByte(0xFF);
+					SD_Select();
+					if (SD_SendCommand(CMD41, 1UL << 30) == 0) {
+						printf("CMD55/41 success\n");
+						SD_Deselect();
+						SPI_WriteByte(0xFF);
+						break;
+					}
+					else {
+						for (int j = 0; j < 128; j++) {
+							if (SPI_ReadByte() == 0){
+								printf("CMD55/41 success\n");
+								SD_Deselect();
+								SPI_WriteByte(0xFF);
+								break;
+							}
+						}
+						SD_Deselect();
+						SPI_WriteByte(0xFF);
+						SD_Select();
+					}
+				}
 			}
 			// Read 4 byte data from OCR
+			SD_Select();
 			if (SD_SendCommand(CMD58, 0) == 0) {
+				printf("CMD58 success\n");
 				for (int i = 0; i < 4; i++) ocr[i] = SPI_ReadByte();
 				// Check CCS bit
 				type = (ocr[0] & 0x40) ? 6 : 2;
@@ -125,7 +166,7 @@ DSTATUS SD_initialize (BYTE pdrv) {
 	else {
 		type = (SD_SendCommand(CMD55, 0) <= 1 && SD_SendCommand(CMD41, 0) <= 1) ? 2 : 1;
 		// Use timer instead of for loop, Attempt to initialize until success
-		for (int i = 0; i < 50; i++) {
+		for (int i = 0; i < 50000; i++) {
 			r = SD_SendCommand(CMD55, 0);
 			// If CMD55 succeeds send CMD41, otherwise CMD1
 			if (r <= 0x01 && SD_SendCommand(CMD41, 0) == 0) break;
@@ -137,7 +178,9 @@ DSTATUS SD_initialize (BYTE pdrv) {
 	SD_Deselect();
 	SPI_ReadByte();
 	if (type != 0) stat &= ~STA_NOINIT;
-
+	// Increase SCLK back to ~25MHz
+	hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
+	HAL_SPI_Init(&hspi1);
 	return stat;
 }
 

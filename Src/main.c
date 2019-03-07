@@ -86,7 +86,6 @@ static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 void SD_Card_Read();
-void SPI_Read();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -108,9 +107,8 @@ int main(void)
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-
+  printf("\n\n\n");
   /* USER CODE BEGIN Init */
-
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -125,7 +123,7 @@ int main(void)
   MX_FATFS_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-
+  SD_Card_Read();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -143,24 +141,22 @@ int main(void)
   * @brief Read a file from SD card
   * @retval file
   */
-void SD_Card_Read(char* buffer, int length)
+void SD_Card_Read(/*char* buffer, int length*/)
 {
-	/*
-	if(f_mount(&mynewdiskFatFs, "", 0) == FR_OK)
+	char buffer[100];
+	int length = 100;
+	FATFS fs;
+	FIL rom;
+	if(f_mount(&fs, "", 0) == FR_OK)
 	{
-		if(f_open(&MyFile, "Hello.txt", FA_READ) == FR_OK)
+		if(f_open(&rom, "Hello.txt", FA_READ) == FR_OK)
 		{
-			f_gets(buffer, length, &MyFile);
-			f_close(&MyFile);
+			f_gets(buffer, length, &rom);
+			f_close(&rom);
+			HAL_GPIO_WritePin(LED_PORT, LED_PIN, GPIO_PIN_SET);
 		}
 	}
-	*/
 }
-
-/**
-  * @brief Receive data through SPI
-  * @retval data read
-  */
 
 /**
   * @brief System Clock Configuration
@@ -234,7 +230,7 @@ static void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;

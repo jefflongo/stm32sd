@@ -3,9 +3,9 @@ sd_driver.c:22:13:SD_Select	0	static
 sd_driver.c:26:13:SD_Deselect	0	static
 sd_driver.c:9:11:SPI_ReadByte	24	static
 sd_driver.c:38:11:SD_SendCommand	16	static
-sd_driver.c:59:13:SD_ReadBlock	16	static
-sd_driver.c:82:9:SD_initialize	24	static
-sd_driver.c:144:9:SD_status	0	static
-sd_driver.c:148:9:SD_read	24	static
-sd_driver.c:174:9:SD_write	0	static
-sd_driver.c:179:9:SD_ioctl	0	static
+sd_driver.c:60:13:SD_ReadBlock	16	static
+sd_driver.c:83:9:SD_initialize	40	static
+sd_driver.c:187:9:SD_status	0	static
+sd_driver.c:191:9:SD_read	24	static
+sd_driver.c:217:9:SD_write	0	static
+sd_driver.c:222:9:SD_ioctl	0	static
