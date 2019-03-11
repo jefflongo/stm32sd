@@ -1,6 +1,7 @@
 #include "sd_driver.h"
 
 extern SPI_HandleTypeDef hspi1;
+extern volatile u8 timer;
 static volatile DSTATUS stat;
 static u8 type = 0;
 
@@ -28,18 +29,21 @@ static void SD_Deselect(void) {
 }
 
 static int SD_CheckReady(){
-	// Use a timer instead of for loop
-	for (int i = 0; i < 5000; i++) {
-		if (SPI_ReadByte() == 0xFF) return 1;
+	u8 prevtime = timer;
+	timer = 50;
+	u8 r = SPI_ReadByte();
+	while ((r != 0xFF) && timer) {
+		r = SPI_ReadByte();
 	}
-	return 0;
+	timer = prevtime;
+	return r;
 }
 
 static u8 SD_SendCommand(u8 cmd, u32 arg) {
 	u8 r;
 	u8 crc = 0;
 	// Wait for SD card to be ready
-	if (!SD_CheckReady()) return 0xFF;
+	if (SD_CheckReady() != 0xFF) return 0xFF;
 	// Send command->argument->CRC
 	SPI_WriteByte(cmd);
 	SPI_WriteByte((u8)(arg >> 24));
@@ -50,7 +54,7 @@ static u8 SD_SendCommand(u8 cmd, u32 arg) {
 	if (cmd == CMD8) crc = 0x87;
 	SPI_WriteByte(crc);
 	// Wait for a valid response
-	for (int i = 0; i < 8; i++) {
+	for (int i = 0; i < 10; i++) {
 		r = SPI_ReadByte();
 		if ((r & 0x80) == 0) break;
 	}
@@ -62,8 +66,7 @@ static void SD_ReadBlock(BYTE* buff, UINT* count) {
 	do {
 		u8 token;
 		// Ensure the next response is the valid 0xFE token
-		// Use a timer instead of a for loop
-		for (int j = 0; j < 128; j++) {
+		for (int i = 0; i < 128; i++) {
 			token = SPI_ReadByte();
 			if (token != 0xFF) break;
 		}
@@ -99,7 +102,7 @@ DSTATUS SD_initialize (BYTE pdrv) {
 	SD_Select();
 	r = SD_SendCommand(CMD0, 0);
 	// Add extra waiting period on startup
-	for (int i = 0; i < 128; i++) {
+	for (int i = 0; i < 0x1FFF; i++) {
 		if (r == 0x01) {
 			printf("CMD0 success\n");
 			break;
@@ -112,6 +115,7 @@ DSTATUS SD_initialize (BYTE pdrv) {
 	SPI_WriteByte(0xFF);
 
 	/* Card type detection */
+	timer = 100;
 	SD_Select();
 	r = SD_SendCommand(CMD8, 0x1AA);
 	// CMD8 accepted
@@ -121,36 +125,21 @@ DSTATUS SD_initialize (BYTE pdrv) {
 		for (int i = 0; i < 4; i++) ocr[i] = SPI_ReadByte();
 		// Arg matched
 		if ((ocr[2] << 2) | (ocr[3] == 0x1AA)) {
-			// Use timer instead of for loop, Attempt to initialize until success
 			printf("0x1AA matched\n");
 			SD_Deselect();
 			SPI_WriteByte(0xFF);
 			SD_Select();
-			for (int i = 0; i < 128; i++) {
-				if (SD_SendCommand(CMD55, 0) <= 0x01) {
+			// Attempt to initialize until success
+			while (timer) {
+				if (SD_SendCommand(CMD55, 0) <= 0x01 && SD_SendCommand(CMD41, 1UL << 30) == 0) {
+					printf("CMD41/51 success\n");
 					SD_Deselect();
 					SPI_WriteByte(0xFF);
-					SD_Select();
-					if (SD_SendCommand(CMD41, 1UL << 30) == 0) {
-						printf("CMD55/41 success\n");
-						SD_Deselect();
-						SPI_WriteByte(0xFF);
-						break;
-					}
-					else {
-						for (int j = 0; j < 128; j++) {
-							if (SPI_ReadByte() == 0){
-								printf("CMD55/41 success\n");
-								SD_Deselect();
-								SPI_WriteByte(0xFF);
-								break;
-							}
-						}
-						SD_Deselect();
-						SPI_WriteByte(0xFF);
-						SD_Select();
-					}
+					break;
 				}
+				SD_Deselect();
+				SPI_WriteByte(0xFF);
+				SD_Select();
 			}
 			// Read 4 byte data from OCR
 			SD_Select();
@@ -165,8 +154,8 @@ DSTATUS SD_initialize (BYTE pdrv) {
 	// CMD8 rejected
 	else {
 		type = (SD_SendCommand(CMD55, 0) <= 1 && SD_SendCommand(CMD41, 0) <= 1) ? 2 : 1;
-		// Use timer instead of for loop, Attempt to initialize until success
-		for (int i = 0; i < 50000; i++) {
+		// Attempt to initialize until success
+		while (timer) {
 			r = SD_SendCommand(CMD55, 0);
 			// If CMD55 succeeds send CMD41, otherwise CMD1
 			if (r <= 0x01 && SD_SendCommand(CMD41, 0) == 0) break;
